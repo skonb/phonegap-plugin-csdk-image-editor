@@ -22,6 +22,8 @@ package com.adobe.phonegap.csdk;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.apache.cordova.PluginResult;
+import org.apache.cordova.PermissionHelper;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 
@@ -42,8 +44,8 @@ import com.adobe.creativesdk.aviary.internal.filters.ToolLoaderFactory;
 import com.adobe.creativesdk.aviary.internal.headless.utils.MegaPixels;
 
 /**
-* This class exposes methods in Cordova that can be called from JavaScript.
-*/
+ * This class exposes methods in Cordova that can be called from JavaScript.
+ */
 public class ImageEditor extends CordovaPlugin {
     private static final String LOG_TAG = "CreativeSDK_ImageEditor";
 
@@ -76,73 +78,132 @@ public class ImageEditor extends CordovaPlugin {
 
     public CallbackContext callbackContext;
 
-     /**
+    protected final static String[] permissions = {Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE};
+    protected static final String PERMISSION_REQUEST = 1000;
+    public static final int PERMISSION_DENIED_ERROR = 20;
+    private JSONArray lastArgs;
+
+
+    /**
      * Executes the request and returns PluginResult.
      *
-     * @param action            The action to execute.
-     * @param args              JSONArry of arguments for the plugin.
-     * @param callbackContext   The callback context from which we were invoked.
+     * @param action          The action to execute.
+     * @param args            JSONArry of arguments for the plugin.
+     * @param callbackContext The callback context from which we were invoked.
      */
     @SuppressLint("NewApi")
     public boolean execute(String action, final JSONArray args, final CallbackContext callbackContext) throws JSONException {
         this.callbackContext = callbackContext;
+        this.lastArgs = args;
+        boolean writePermission = PermissionHelper.hasPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        boolean readPermission = PermissionHelper.hasPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE);
 
-        if (action.equals("edit")) {
-            String imageStr = args.getString(0);
-            if (imageStr == null || "".equals(imageStr)) {
-                this.callbackContext.error("Image Path must be specified");
+        // CB-10120: The CAMERA permission does not need to be requested unless it is declared
+        // in AndroidManifest.xml. This plugin does not declare it, but others may and so we must
+        // check the package info to determine if the permission is present.
+
+        if (!writePermission) {
+            writePermission = true;
+            try {
+                PackageManager packageManager = this.cordova.getActivity().getPackageManager();
+                String[] permissionsInPackage = packageManager.getPackageInfo(this.cordova.getActivity().getPackageName(), PackageManager.GET_PERMISSIONS).requestedPermissions;
+                if (permissionsInPackage != null) {
+                    for (String permission : permissionsInPackage) {
+                        if (permission.equals(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                            writePermission = false;
+                            break;
+                        }
+                    }
+                }
+            } catch (NameNotFoundException e) {
+                // We are requesting the info for our package, so this should
+                // never be caught
             }
-            Uri imageUri = Uri.parse(imageStr);
+        }
 
-            AdobeImageIntent.Builder builder =
-                new AdobeImageIntent.Builder(this.cordova.getActivity().getApplicationContext())
-                    .setData(imageUri);
-
-            // setup options
-            setOutputType(builder, args.getInt(1));
-            setToolsArray(builder, args.getJSONArray(2));
-            builder.withOutputQuality(args.getInt(3));
-            builder.withNoExitConfirmation(args.getBoolean(4));
-            builder.withOutputSize(MegaPixels.valueOf("Mp"+args.getString(5)));
-            builder.saveWithNoChanges(args.getBoolean(6));
-            builder.withVibrationEnabled(args.getBoolean(7));
-
-            int color = args.getInt(8);
-            if (color != 0) {
-                builder.withAccentColor(color);
-            }
-
-            int previewSize = args.getInt(9);
-            if (previewSize > 0) {
-                builder.withPreviewSize(previewSize);
-            }
-
-            String outputFile = args.getString(10);
-            if (!"".equals(outputFile)) {
-                File fp = new File(outputFile);
-                builder.withOutput(fp);
-            }
-
-            Intent imageEditorIntent = builder.build();
-
-            this.cordova.startActivityForResult((CordovaPlugin) this, imageEditorIntent, 1);
-
-            PluginResult r = new PluginResult(PluginResult.Status.NO_RESULT);
-            r.setKeepCallback(true);
-            callbackContext.sendPluginResult(r);
+        if (writePermission && !readPermission) {
+            PermissionHelper.requestPermission(this, PERMISSION_REQUEST, Manifest.permission.READ_EXTERNAL_STORAGE);
+        } else if (!writePermission && readPermission) {
+            PermissionHelper.requestPermission(this, PERMISSION_REQUEST, Manifest.permission.WRITE_EXTERNAL_STORAGE);
         } else {
-            return false;
+            PermissionHelper.requestPermissions(this, PERMISSION_REQUEST, permissions);
+        }else{
+            if (action.equals("edit")) {
+                editAction(args);
+            } else {
+                return false;
+            }
         }
         return true;
+    }
+
+    protected void editAction(final JSONArray args){
+        String imageStr = args.getString(0);
+        if (imageStr == null || "".equals(imageStr)) {
+            this.callbackContext.error("Image Path must be specified");
+        }
+        Uri imageUri = Uri.parse(imageStr);
+
+        AdobeImageIntent.Builder builder =
+            new AdobeImageIntent.Builder(this.cordova.getActivity().getApplicationContext())
+                .setData(imageUri);
+
+        // setup options
+        setOutputType(builder, args.getInt(1));
+        setToolsArray(builder, args.getJSONArray(2));
+        builder.withOutputQuality(args.getInt(3));
+        builder.withNoExitConfirmation(args.getBoolean(4));
+        builder.withOutputSize(MegaPixels.valueOf("Mp" + args.getString(5)));
+        builder.saveWithNoChanges(args.getBoolean(6));
+        builder.withVibrationEnabled(args.getBoolean(7));
+
+        int color = args.getInt(8);
+        if (color != 0) {
+            builder.withAccentColor(color);
+        }
+
+        int previewSize = args.getInt(9);
+        if (previewSize > 0) {
+            builder.withPreviewSize(previewSize);
+        }
+
+        String outputFile = args.getString(10);
+        if (!"".equals(outputFile)) {
+            File fp = new File(outputFile);
+            builder.withOutput(fp);
+        }
+
+        Intent imageEditorIntent = builder.build();
+
+        this.cordova.startActivityForResult((CordovaPlugin) this, imageEditorIntent, 1);
+
+        PluginResult r = new PluginResult(PluginResult.Status.NO_RESULT);
+        r.setKeepCallback(true);
+        callbackContext.sendPluginResult(r);
+    }
+
+    public void onRequestPermissionResult(int requestCode, String[] permissions,
+                                          int[] grantResults) throws JSONException {
+        for (int r : grantResults) {
+            if (r == PackageManager.PERMISSION_DENIED) {
+                this.callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.ERROR, PERMISSION_DENIED_ERROR));
+                return;
+            }
+        }
+        switch (requestCode) {
+            case PERMISSION_REQUEST:
+                editAction(this.lastArgs);
+                break;
+        }
     }
 
     /**
      * Called when the image editor exits.
      *
-     * @param requestCode       The request code originally supplied to startActivityForResult(),
-     *                          allowing you to identify who this result came from.
-     * @param resultCode        The integer result code returned by the child activity through its setResult().
-     * @param intent            An Intent, which can return result data to the caller (various data can be attached to Intent "extras").
+     * @param requestCode The request code originally supplied to startActivityForResult(),
+     *                    allowing you to identify who this result came from.
+     * @param resultCode  The integer result code returned by the child activity through its setResult().
+     * @param intent      An Intent, which can return result data to the caller (various data can be attached to Intent "extras").
      */
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
         if (resultCode == Activity.RESULT_OK) {
@@ -172,17 +233,17 @@ public class ImageEditor extends CordovaPlugin {
             if (tools.length > 0) {
                 builder.withToolList(tools);
             }
-        } catch(JSONException e) {
+        } catch (JSONException e) {
             Log.e(LOG_TAG, e.getLocalizedMessage(), e);
         }
     }
 
     private ToolLoaderFactory.Tools[] createToolsArray(JSONArray toolsArray) throws JSONException {
         ArrayList<ToolLoaderFactory.Tools> tools = new ArrayList<ToolLoaderFactory.Tools>();
-        for (int i=0; i<toolsArray.length(); i++) {
+        for (int i = 0; i < toolsArray.length(); i++) {
             int tool = toolsArray.getInt(i);
             if (tool >= 0 && tool <= 20) {
-                switch(tool) {
+                switch (tool) {
                     case SHARPNESS:
                         tools.add(ToolLoaderFactory.Tools.SHARPNESS);
                         break;
