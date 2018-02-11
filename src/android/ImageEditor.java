@@ -125,7 +125,7 @@ public class ImageEditor extends CordovaPlugin {
             PermissionHelper.requestPermission(this, PERMISSION_REQUEST, Manifest.permission.READ_EXTERNAL_STORAGE);
         } else if (!writePermission && readPermission) {
             PermissionHelper.requestPermission(this, PERMISSION_REQUEST, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-        } else {
+        } else if (!writePermission && !readPermission) {
             PermissionHelper.requestPermissions(this, PERMISSION_REQUEST, permissions);
         }else{
             if (action.equals("edit")) {
