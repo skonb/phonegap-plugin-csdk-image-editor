@@ -79,7 +79,7 @@ public class ImageEditor extends CordovaPlugin {
     public CallbackContext callbackContext;
 
     protected final static String[] permissions = {Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE};
-    protected static final String PERMISSION_REQUEST = 1000;
+    protected static final int PERMISSION_REQUEST = 1000;
     public static final int PERMISSION_DENIED_ERROR = 20;
     private JSONArray lastArgs;
 
